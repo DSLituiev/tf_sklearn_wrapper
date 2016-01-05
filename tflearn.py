@@ -156,7 +156,7 @@ class tflearn():
                                     feed_dict = { self.vars.xx: X, self.vars.yy :  np.reshape(y, [-1, 1]) })
         return y_predicted
 
-    def fit(self, train_X, train_Y , load = True):
+    def fit(self, train_X, train_Y , test_X= None, test_Y = None, load = True):
         self.last_ckpt_num = 0
         self.train = True
         #self.X = train_X
@@ -200,6 +200,13 @@ class tflearn():
                     # Display logs once in `display_step` epochs
                     
                     if (epoch) % self.display_step == 0:
+                        if train_X is not None and train_Y is not None:
+                            _x_ = test_X
+                            _y_ = test_Y
+                        else:
+                            _x_ = train_X
+                            _y_ = train_Y
+                        feed_dict={ self.vars.xx: _x_, self.vars.yy: _y_, self.vars.keep_prob : 0.5}
                         summary_str = sess.run(summary_op, feed_dict=feed_dict)
                         summary_writer.add_summary(summary_str, epoch)
                         summary_d = summary_dict(summary_str, summary_proto)
