@@ -54,7 +54,8 @@ class tflearn():
                 BATCH_SIZE = 100,
                 ALPHA = 1e-4,
                 NUM_CORES = 3,
-                checkpoint_dir = "./checkpoints/"
+                checkpoint_dir = "./checkpoints/",
+                dropout = 0.5,
          ):
         self.learning_rate = learning_rate
         self.training_epochs=training_epochs
@@ -63,7 +64,7 @@ class tflearn():
         self.BATCH_SIZE = BATCH_SIZE
         self.checkpoint_dir = checkpoint_dir
         self.NUM_CORES = NUM_CORES  # Choose how many cores to use.
-        
+        self.dropout = dropout 
         self.parameters = vardict()
 #     def __getattr__(self, name):
 #         return self.parameters[name]
@@ -125,7 +126,7 @@ class tflearn():
             self.saver.restore(sess, ckpt.model_checkpoint_path)
         else:
             print(ckpt, file = sys.stderr)
-            raise Exception("no checkpoint found")
+            raise IOError("no checkpoint found")
         #print( "loaded b1:",  self.parameters.b1.name , self.parameters.b1.eval()[0][0]  , sep = "\t" )
         assert self.xlen == int(self.vars.xx.get_shape()[1]), "dimension mismatch"
         self.last_ckpt_num = int(ckpt.all_model_checkpoint_paths[-1].split("-")[-1])
@@ -137,6 +138,9 @@ class tflearn():
         g = tf.Graph()
         with g.as_default():
             self._create_network()
+
+            tot_loss = self._create_loss()
+            summary_op = tf.merge_all_summaries()
             sess_config = tf.ConfigProto(inter_op_parallelism_threads=self.NUM_CORES,
                                        intra_op_parallelism_threads= self.NUM_CORES)
             # Initializing the variables
@@ -148,10 +152,21 @@ class tflearn():
                 else:
                     sess.run(init)
 
+                feed_dict={ self.vars.xx: X, }
+                if self.dropout:
+                    feed_dict[ self.vars.keep_prob] = 0.5
+                
                 y_predicted = sess.run( self.vars.y_predicted,
-                                feed_dict = { self.vars.xx: X})
+                                feed_dict = feed_dict )
                 if y is not None:
-                    tot_loss = self._create_loss()
+                    feed_dict[ self.vars.yy ] = np.reshape(y, [-1, 1])
+                    summary_proto = tf.Summary()
+                    summary_str = sess.run(summary_op, feed_dict=feed_dict)
+                    summary_d = summary_dict(summary_str, summary_proto)
+
+                    summary_plainstr =  "\t".join(["{:s}: {:.4f}".format(k,v) for k,v in summary_d.items() ])
+                    print( summary_plainstr, file = sys.stderr )
+
                     self.loss = sess.run( tot_loss,
                                     feed_dict = { self.vars.xx: X, self.vars.yy :  np.reshape(y, [-1, 1]) })
         return y_predicted
@@ -162,6 +177,8 @@ class tflearn():
         #self.X = train_X
         self.xlen = train_X.shape[1]
         self.r2_progress = []
+        self.train_summary = []
+        self.test_summary = []
         yvar = train_Y.var()
         print(yvar)
         # n_samples = y.shape[0]
@@ -186,44 +203,67 @@ class tflearn():
             with tf.Session(config= sess_config) as sess:
                 sess.run(init)
                 if load:
-                    self._load_(sess)
+                    try:
+                        self._load_(sess)
+                    except IOError as ex:
+                        print(ex, file = sys.stderr)
                 # write summaries out
                 summary_writer = tf.train.SummaryWriter("./tmp/mnist_logs", sess.graph_def)
                 summary_proto = tf.Summary()
                 # Fit all training data
-                for epoch in tqdm(range( self.last_ckpt_num, self.last_ckpt_num + self.training_epochs)):
+                print("training epochs: %u ... %u, saving each %u' epoch" % \
+                        (self.last_ckpt_num, self.last_ckpt_num + self.training_epochs, self.display_step),
+                        file = sys.stderr)
+                for macro_epoch in tqdm(range( self.last_ckpt_num//self.display_step ,
+                                         (self.last_ckpt_num + self.training_epochs)//  self.display_step )):
                     "do minibatches"
-                    for (_x_, _y_) in getb(train_X, train_Y):
-                        _y_ = np.reshape(_y_, [-1, 1])                        
-                        feed_dict={ self.vars.xx: _x_, self.vars.yy: _y_, self.vars.keep_prob : 0.5}
-                        sess.run(train_op, feed_dict = feed_dict)
+                    for subepoch in tqdm(range(self.display_step)):
+                        for (_x_, _y_) in getb(train_X, train_Y):
+                            _y_ = np.reshape(_y_, [-1, 1])                        
+                            if self.dropout:
+                                feed_dict={ self.vars.xx: _x_, self.vars.yy: _y_, self.vars.keep_prob : 0.5}
+                            else:
+                                feed_dict={ self.vars.xx: _x_, self.vars.yy: _y_ }
+                            sess.run(train_op, feed_dict = feed_dict)
+                    epoch = macro_epoch * self.display_step
                     # Display logs once in `display_step` epochs
                     
-                    if (epoch) % self.display_step == 0:
-                        if train_X is not None and train_Y is not None:
-                            _x_ = test_X
-                            _y_ = test_Y
-                        else:
-                            _x_ = train_X
-                            _y_ = train_Y
-                        feed_dict={ self.vars.xx: _x_, self.vars.yy: _y_, self.vars.keep_prob : 0.5}
+                    _sets_ = ["train"]
+                    _xs_ = [ train_X ]
+                    _ys_ = [ train_Y ]
+                    summaries = {}
+                    summaries_plainstr = []
+                    if (test_X is not None) and (test_Y is not None):
+                        _sets_.append("test")
+                        _xs_.append( test_X )
+                        _ys_.append( test_Y )
+
+                    for _set_, _x_, _y_ in zip(_sets_, _xs_, _ys_ ):
+                        _y_ = np.reshape(_y_, [-1, 1])                        
+
+                        feed_dict={ self.vars.xx: _x_, self.vars.yy: _y_ }
+                        if self.dropout:
+                            feed_dict[ self.vars.keep_prob ] =  0.5
+
                         summary_str = sess.run(summary_op, feed_dict=feed_dict)
                         summary_writer.add_summary(summary_str, epoch)
                         summary_d = summary_dict(summary_str, summary_proto)
-                        #print(type(summary_str))
-                        
-#                         cost = sess.run(tot_loss,
-#                                 feed_dict={ self.vars.xx: train_X,
-#                                         self.vars.yy: np.reshape(train_Y, [-1, 1])})
-#                         #rsq = sess.run(rsquared, feed_dict={xx: train_X, yy: np.reshape(train_Y, [-1, 1])})
-#                         rsq =  1 - cost / yvar
+                        summaries[_set_] = summary_d
+
+                        summary_d["epoch"] = epoch
+
                         self.r2_progress.append( (epoch, summary_d["R2"]))
-                        logstr = "Epoch: {:4d}\ttot loss= {:.4f}\tL2 loss= {:.4f}\tR^2= {:.4f}".format((epoch+1), 
-                                        summary_d["loss"], summary_d["L2_loss"], summary_d["R2"],)
-                        print(logstr, file = sys.stderr )
-                        self.saver.save(sess, self.checkpoint_dir + '/' +'model.ckpt',
-                           global_step=  epoch)
-                        self.last_ckpt_num = epoch
+                        summaries_plainstr.append(  "\t".join(["",_set_] +["{:s}: {:.4f}".format(k,v) for k,v in summary_d.items() ]) )
+
+                    self.train_summary.append( summaries["train"] )
+                    if  "test" in summaries:
+                        self.test_summary.append( summaries["test"] )
+
+                    logstr = "Epoch: {:4d}\t".format(epoch+1) + "\n"+ "\n".join(summaries_plainstr)
+                    print(logstr, file = sys.stderr )
+                    self.saver.save(sess, self.checkpoint_dir + '/' +'model.ckpt',
+                       global_step=  epoch)
+                    self.last_ckpt_num = epoch
                         #0print("\tb1",  self.parameters.b1.name , self.parameters.b1.eval()[0][0] , sep = "\t")
                         #print( "W=", sess.run(W1))  # "b=", sess.run(b1)
                 print("Optimization Finished!", file = sys.stderr)
