@@ -36,30 +36,44 @@ class vardict(dict):
 
 
 import tensorflow as tf
+from tflearn import tflearn
 
-class tflasso():
-   def _create_network(self):
+
+class tflasso(tflearn):
+    def _create_network(self):
         self.vars = vardict()
-        self.vars.xx = tf.placeholder("float", shape=[None, self.xlen])
-        self.vars.yy = tf.placeholder("float", shape=[None, 1])
+        self.vars.x = tf.placeholder("float", shape=[None, self.xlen])
+        self.vars.y = tf.placeholder("float", shape=[None, 1])
 
+        #def fully_connected():
+            
         # Create Model
         self.parameters["W1"] = tf.Variable(tf.truncated_normal([1, self.xlen], stddev=0.1), name="weight")
         self.parameters["b1"] = tf.Variable(tf.constant(0.1, shape=[1, 1]), name="bias")
-        self.vars.y_predicted = tf.matmul( self.vars.xx, tf.transpose(self.W1)) + self.b1
+                
+        self.vars.y_predicted = tf.matmul( self.vars.x, tf.transpose(self.W1)) + self.b1
         self.saver = tf.train.Saver()
+        return self.vars.y_predicted
+        
         
     def _create_loss(self):
         # Minimize the squared errors
-        l2_loss = tf.reduce_mean(tf.pow( self.vars.y_predicted - self.vars.yy, 2))
-        # Lasso penalty
+        l2_loss = tf.reduce_mean(tf.pow( self.vars.y_predicted - self.vars.y, 2))
+        l2_sy = tf.scalar_summary( "L2_loss", l2_loss )
+        "Lasso penalty"
         l1_penalty = tf.reduce_sum((tf.abs(tf.concat(1, [self.W1,self.b1], name = "l1" ) )) )
+        l1p_sy =  tf.scalar_summary( "L1_penalty" , l1_penalty )
+        "total"
         tot_loss = l2_loss + self.ALPHA * l1_penalty
+        tot_loss_sy =  tf.scalar_summary( "loss" , tot_loss )
+        "R2"
+        _, y_var = tf.nn.moments(self.vars.y, [0,1])
+        rsq =  1 - l2_loss / y_var
+        rsq_sy = tf.scalar_summary( "R2", rsq)
         return tot_loss
         
-       
 if __name__ == "__main__":
-    datafile = "../data/atac_tss_800_1.h5"
+    datafile = "../../data/atac_tss_800_1.h5"
 #    datafile = "../data/test.h5"
     paramfile = "tflasso_tss_100"
     with pd.HDFStore(datafile) as store:
@@ -68,6 +82,7 @@ if __name__ == "__main__":
         X_ = store["X"]
 
     """ transform data """
+    sys.path.append("../")
     from transform_tss import safelog, sumstrands, groupcolumns
 
     feature_step = 100
@@ -85,7 +100,7 @@ if __name__ == "__main__":
 
     import json
 
-    tfl = tflasso(ALPHA = 2e-1)
+    tfl = tflasso(ALPHA = 2e-1, dropout = False )
     tfl.fit( train_X, train_Y )
 
 

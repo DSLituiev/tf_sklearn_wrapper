@@ -49,6 +49,7 @@ def summary_dict(summary_str, summary_proto = None):
         summaries[val.tag] = val.simple_value
     return summaries
 #######################
+
 class tflearn():
     def __init__(self, *args,
         **kwargs      ):
@@ -86,7 +87,27 @@ class tflearn():
             return 
 
     def _create_network(self):
+        print( """
+        # Example:
+
+        # create placeholders 
+        self.vars = vardict()
+        self.vars.x = tf.placeholder("float", shape=[None, self.xlen])
+        self.vars.y = tf.placeholder("float", shape=[None, 1])
+
+        # create parameter variables
+        self.parameters["W1"] = tf.Variable(tf.truncated_normal([1, self.xlen], stddev=0.1), name="weight")
+        self.parameters["b1"] = tf.Variable(tf.constant(0.1, shape=[1, 1]), name="bias")
+
+        # Create Model
+        self.vars.y_predicted = tf.matmul( self.vars.x, tf.transpose(self.W1)) + self.b1
+        self.saver = tf.train.Saver()
+
+        return self.vars.y_predicted
+        """ ,file = sys.stderr)
         raise NotImplementedError              
+         
+           
 
     def _get_summary_keys_(self):
         #summaries = {}
@@ -111,22 +132,8 @@ class tflearn():
         define loss variable and summaries;
         the method must return a tf.Variable (not a summary!)
         """
-        with tf.name_scope("loss") as scope:
-            # Minimize the squared errors
-            l2_loss = tf.reduce_mean(tf.pow( self.vars.y_predicted - self.vars.yy, 2))
-            l2_sy = tf.scalar_summary( "L2_loss", l2_loss )
-            # Lasso penalty
-            #l1_penalty = tf.reduce_sum((tf.abs(tf.concat(1, [self.W1,self.b1]) )) )
-            #l1p_sy =  tf.scalar_summary( "L1_penalty" , l1_penalty )
-            tot_loss = l2_loss #+ self.ALPHA * l1_penalty
-            tot_loss_sy =  tf.scalar_summary( "loss" , tot_loss )
-            
-            _, y_var = tf.nn.moments(self.vars.yy, [0,1])
-            rsq =  1 - l2_loss / y_var
-            rsq_sy = tf.scalar_summary( "R2", rsq)
-            
-        return tot_loss
-        
+        raise NotImplementedError              
+       
     def get_params(self, load = True):
         params = {}
         g = tf.Graph()
@@ -158,7 +165,7 @@ class tflearn():
             print(ckpt, file = sys.stderr)
             raise IOError("no checkpoint found")
         #print( "loaded b1:",  self.parameters.b1.name , self.parameters.b1.eval()[0][0]  , sep = "\t" )
-        assert self.xlen == int(self.vars.xx.get_shape()[1]), "dimension mismatch"
+        assert self.xlen == int(self.vars.x.get_shape()[1]), "dimension mismatch"
         self.last_ckpt_num = int(ckpt.all_model_checkpoint_paths[-1].split("-")[-1])
         return ckpt
 
@@ -170,7 +177,8 @@ class tflearn():
             self.xlen = 1
         g = tf.Graph()
         with g.as_default():
-            self._create_network()
+            "fetch a placeholder of the predicted variable"
+            ph_y_predicted = self._create_network()
             if not ("keep_prob" in self.vars or hasattr( self.vars, "keep_prob") ):
                 self.dropout = 0.0
             tot_loss = self._create_loss()
@@ -186,7 +194,7 @@ class tflearn():
                 else:
                     sess.run(init)
 
-                feed_dict={ self.vars.xx: X, }
+                feed_dict={ self.vars.x: X, }
                 if self.dropout > 0 and self.dropout < 1:
                     feed_dict[ self.vars.keep_prob] = self.dropout 
                 
@@ -202,7 +210,7 @@ class tflearn():
                                 pass
 
                 if y is not None:
-                    feed_dict[ self.vars.yy ] = np.reshape(y, [-1, 1])
+                    feed_dict[ self.vars.y ] = np.reshape(y, [-1, 1])
                     self.summary_proto = tf.Summary()
                     summary_str = sess.run(summary_op, feed_dict=feed_dict)
                     summary_d = summary_dict(summary_str, self.summary_proto)
@@ -211,7 +219,7 @@ class tflearn():
                     print( summary_plainstr, file = sys.stderr )
 
                     self.loss = sess.run( tot_loss,
-                                    feed_dict = { self.vars.xx: X, self.vars.yy :  np.reshape(y, [-1, 1]) })
+                                    feed_dict = { self.vars.x: X, self.vars.y :  np.reshape(y, [-1, 1]) })
         return y_predicted
 
     def fit(self, train_X, train_Y , test_X= None, test_Y = None, load = True, training_epochs = None):
@@ -270,9 +278,9 @@ class tflearn():
                         for (_x_, _y_) in getb(train_X, train_Y):
                             _y_ = np.reshape(_y_, [-1, 1])                        
                             if self.dropout:
-                                feed_dict={ self.vars.xx: _x_, self.vars.yy: _y_, self.vars.keep_prob : self.dropout}
+                                feed_dict={ self.vars.x: _x_, self.vars.y: _y_, self.vars.keep_prob : self.dropout}
                             else:
-                                feed_dict={ self.vars.xx: _x_, self.vars.yy: _y_ }
+                                feed_dict={ self.vars.x: _x_, self.vars.y: _y_ }
                             sess.run(train_op, feed_dict = feed_dict)
                     epoch = macro_epoch * self.display_step
                     # Display logs once in `display_step` epochs
@@ -290,7 +298,7 @@ class tflearn():
                     for _set_, _x_, _y_ in zip(_sets_, _xs_, _ys_ ):
                         _y_ = np.reshape(_y_, [-1, 1])                        
 
-                        feed_dict={ self.vars.xx: _x_, self.vars.yy: _y_ }
+                        feed_dict={ self.vars.x: _x_, self.vars.y: _y_ }
                         if self.dropout:
                             feed_dict[ self.vars.keep_prob ] = self.dropout 
 
@@ -316,9 +324,46 @@ class tflearn():
                         #0print("\tb1",  self.parameters.b1.name , self.parameters.b1.eval()[0][0] , sep = "\t")
                         #print( "W=", sess.run(W1))  # "b=", sess.run(b1)
                 print("Optimization Finished!", file = sys.stderr)
-#                 print("cost = ", sess.run( tot_loss , feed_dict={self.vars.xx: train_X, self.vars.yy: np.reshape(train_Y, [-1, 1]) }) )
+#                 print("cost = ", sess.run( tot_loss , feed_dict={self.vars.x: train_X, self.vars.y: np.reshape(train_Y, [-1, 1]) }) )
 #                 print("W1 = ", sess.run(self.parameters.W1), )
 #                 print("b1 = ", sess.run(self.parameters.b1) )
         return self
 
-
+###############################################
+class rtflearn(tflearn):
+    """
+    **regression** template class for sklearn-style tensorflow wrapper
+    """
+    def _create_loss(self):
+        """
+        define loss variable and summaries;
+        the method must return a tf.Variable (not a summary!)
+        """
+        with tf.name_scope("loss") as scope:
+            # Minimize the squared errors
+            l2_loss = tf.reduce_mean(tf.pow( self.vars.y_predicted - self.vars.y, 2))
+            l2_sy = tf.scalar_summary( "L2_loss", l2_loss )
+            # Lasso penalty
+            #l1_penalty = tf.reduce_sum((tf.abs(tf.concat(1, [self.W1,self.b1]) )) )
+            #l1p_sy =  tf.scalar_summary( "L1_penalty" , l1_penalty )
+            tot_loss = l2_loss #+ self.ALPHA * l1_penalty
+            tot_loss_sy =  tf.scalar_summary( "loss" , tot_loss )
+            
+            _, y_var = tf.nn.moments(self.vars.y, [0,1])
+            rsq =  1 - l2_loss / y_var
+            rsq_sy = tf.scalar_summary( "R2", rsq)
+            
+        return tot_loss
+###############################################
+class ctflearn(tflearn):
+    """
+    **classification** template class for sklearn-style tensorflow wrapper
+    """
+    def _create_loss(self):
+        """
+        define loss variable and summaries;
+        the method must return a tf.Variable (not a summary!)
+        """
+        raise NotImplementedError              
+        return tot_loss
+ 
