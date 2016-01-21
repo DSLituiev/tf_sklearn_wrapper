@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # coding: utf-8
+from __future__ import print_function
 import os, sys
 from tqdm import tqdm
 import numpy  as np
@@ -365,5 +366,32 @@ class ctflearn(tflearn):
         the method must return a tf.Variable (not a summary!)
         """
         raise NotImplementedError              
+        def loss(logits, labels, NUM_CLASSES):
+            # copied from tensorflow/tensorflow/examples/tutorials/mnist/mnist.py
+            """Calculates the loss from the logits and the labels.
+            Args:
+            logits: Logits tensor, float - [batch_size, NUM_CLASSES].
+            labels: Labels tensor, int32 - [batch_size].
+            Returns:
+            loss: Loss tensor of type float.
+            """
+            # Convert from sparse integer labels in the range [0, NUM_CLASSES)
+            # to 1-hot dense float vectors (that is we will have batch_size vectors,
+            # each with NUM_CLASSES values, all of which are 0.0 except there will
+            # be a 1.0 in the entry corresponding to the label).
+            batch_size = tf.size(labels)
+            labels = tf.expand_dims(labels, 1)
+            indices = tf.expand_dims(tf.range(0, batch_size), 1)
+            concated = tf.concat(1, [indices, labels])
+            onehot_labels = tf.sparse_to_dense(
+              concated, tf.pack([batch_size, NUM_CLASSES]), 1.0, 0.0)
+            cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits,
+                                                                  onehot_labels,
+                                                                  name='xentropy')
+            loss = tf.reduce_mean(cross_entropy, name='xentropy_mean')
+            return loss
+        NUM_CLASSES = self.vars.y.get_shape()[1]
+        
+        tot_loss = loss(logits, labels, NUM_CLASSES)
         return tot_loss
  
