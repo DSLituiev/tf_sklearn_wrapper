@@ -4,42 +4,12 @@ import os, sys
 import pandas as pd
 import numpy  as np
 import matplotlib.pyplot as plt
-import joblib , dill
 
 #######################
-def batchgen(batchsize):
-    
-    def getbatch(x,y):
-        assert (len(x) == len(y)), "dimension mismatch"
-        for i in range(0, len(y), batchsize):
-            yield x[i:i+batchsize], y[i:i+batchsize], 
-    return getbatch
-
-#######################
-class vardict(dict):
-    #__module__ = os.path.splitext(os.path.basename(__file__))[0]  ### look here ###
-    def __init__(self, *args, **kwargs):
-                dict.__init__(self, *args, **kwargs)
-
-    def __getattr__(self, name):
-        return self[name]
-
-    def __setattr__(self,name, val):
-        self.__dict__[name] = val
-
-    def __getstate__(self):
-        return self.__dict__.items()
-
-    def __setstate__(self, items):
-        for key, val in items:
-            self.__dict__[key] = val
-
-
 import tensorflow as tf
-from tflearn import tflearn
+from tflearn import rtflearn, vardict
 
-
-class tflasso(tflearn):
+class tflasso(rtflearn):
     def _create_network(self):
         self.vars = vardict()
         self.vars.x = tf.placeholder("float", shape=[None, self.xlen])
@@ -97,8 +67,6 @@ if __name__ == "__main__":
     X3 = pf3.fit_transform(X)
     trainsamples = 4000
     train_X, train_Y = X3[:trainsamples], y[:trainsamples].as_matrix()
-
-    import json
 
     tfl = tflasso(ALPHA = 2e-1, dropout = False )
     tfl.fit( train_X, train_Y )
