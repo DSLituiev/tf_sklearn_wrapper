@@ -1,9 +1,22 @@
-a `scikit-learn` style wrapper around tensorflow package
+# tflearn
+a thin `scikit-learn` style wrapper for  `tensorflow` framework
 
-usage (see `tf_lasso.py`):
+## Usage 
+The wrapper takes care of training (`fit()`) and prediction(`predict()`) infrastructure.
+What is left to do is to specify the network topology in `_create_network()` method and 
+loss function in `_create_loss()` method.
+
+There are two subclasses of the `tflearn` class 
+which come with ready to use `_create_loss()` method:
+ + `rtflearn` for regression 
+ + `ctflearn` for classification (in progress)
+
+
+## Example
+(see `tf_lasso.py`):
 
     import tensorflow as tf
-    from tflearn import tflearn, vardict
+    from tflearn import rtflearn, vardict
 
     class tflasso(tflearn):
        def _create_network(self):
