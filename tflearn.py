@@ -7,14 +7,23 @@ import numpy  as np
 #import pandas as pd
 #import matplotlib.pyplot as plt
 import tensorflow as tf
+import logging
 
 #######################
 def batchgen(batchsize):
     
-    def getbatch(x,y):
-        assert (x.shape[0] == len(y)), "dimension mismatch"
-        for i in range(0, len(y), batchsize):
-            yield x[i:i+batchsize], y[i:i+batchsize], 
+    def getbatch( *args):
+        if type(args[-1]) is list:
+            ylen = len(y)
+        else:
+            ylen = args[-1].shape[0]
+
+        if len(args) > 1:
+            for a in args:
+                assert (a.shape[0] == ylen ), "dimension mismatch"
+
+        for i in range(0, ylen, batchsize):
+            yield (a[i:i+batchsize] for a in args)
     return getbatch
 
 #######################
@@ -27,7 +36,7 @@ class vardict(dict):
         if name in self:
             return self[name]
         else:
-            raise AttributeError
+            raise AttributeError("key %s not found" % name )
 
     def __setattr__(self,name, val):
         self.__dict__[name] = val
@@ -55,8 +64,8 @@ class tflearn():
     def __init__(self, *args,
         **kwargs      ):
         defaults = dict(
-              learning_rate = 2e-2,
-             training_epochs = 5000,
+                learning_rate = 2e-2,
+                epochs = 5000,
                 display_step = 100,
                 BATCH_SIZE = 100,
                 ALPHA = 1e-4,
@@ -72,6 +81,8 @@ class tflearn():
             setattr(self, kk, vv)
         self.parameters = vardict()
 
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
+
     #     def __getattr__(self, name):
     #         return self.parameters[name]
     def __getattr__(self, key):
@@ -84,7 +95,7 @@ class tflearn():
         if key in self.parameters:
             return self.parameters[key]
         else:
-            print(key, "not found", file = sys.stderr)
+            print("key", key, "not found", file = sys.stderr)
             return 
 
     def _create_network(self):
@@ -223,9 +234,9 @@ class tflearn():
                                     feed_dict = { self.vars.x: X, self.vars.y :  np.reshape(y, [-1, 1]) })
         return y_predicted
 
-    def fit(self, train_X, train_Y , test_X= None, test_Y = None, load = True, training_epochs = None):
-        if training_epochs:
-            self.training_epochs = training_epochs
+    def fit(self, train_X, train_Y , test_X= None, test_Y = None, load = True, epochs = None, epochs = None):
+        if epochs:
+            self.epochs = epochs
         self.last_ckpt_num = 0
         self.train = True
         #self.X = train_X
@@ -234,7 +245,7 @@ class tflearn():
         self.train_summary = []
         self.test_summary = []
         yvar = train_Y.var()
-        print("variance(y) = ", yvar, file = sys.stderr)
+        #print("variance(y) = ", yvar, file = sys.stderr)
         # n_samples = y.shape[0]
         g = tf.Graph()
         with g.as_default():
@@ -270,10 +281,10 @@ class tflearn():
                 summary_proto = tf.Summary()
                 # Fit all training data
                 print("training epochs: %u ... %u, saving each %u' epoch" % \
-                        (self.last_ckpt_num, self.last_ckpt_num + self.training_epochs, self.display_step),
+                        (self.last_ckpt_num, self.last_ckpt_num + self.epochs, self.display_step),
                         file = sys.stderr)
                 for macro_epoch in tqdm(range( self.last_ckpt_num//self.display_step ,
-                                         (self.last_ckpt_num + self.training_epochs)//  self.display_step )):
+                                         (self.last_ckpt_num + self.epochs)//  self.display_step )):
                     "do minibatches"
                     for subepoch in tqdm(range(self.display_step)):
                         for (_x_, _y_) in getb(train_X, train_Y):
