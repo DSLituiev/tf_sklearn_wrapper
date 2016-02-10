@@ -26,19 +26,23 @@ def batchgen(batchsize, dictionary = False):
         for i in range(0, ylen, batchsize):
             yield (a[i:i+batchsize] for a in args)
 
-    def getbatchdict( **kwargs):
+    def getbatchdict(args, **kwargs):
+        if type(args) is dict:
+            kwargs.update(args)
         """ generate batch feed dictionary from a key-value pairs """
-        if type(kwargs.values()[-1]) is list:
-            ylen = len(y)
+        lastitem = list(kwargs.values())[-1]
+        if type( lastitem ) is list:
+            ylen = len(lastitem)
         else:
-            ylen = kwargs.values()[-1].shape[0]
+            ylen = lastitem.shape[0]
 
         if len(args) > 1:
             for kk, vv in kwargs.items():
                 assert (vv.shape[0] == ylen ), "dimension mismatch"
 
+
         for i in range(0, ylen, batchsize):
-            yield {kk : vv[i:i+batchsize] for kk, vv in kwargs}
+            yield dict(zip( kwargs.keys(),   (vv[i:i+batchsize]  for vv in kwargs.values() ) ))
 
     if dictionary:
         return getbatchdict
