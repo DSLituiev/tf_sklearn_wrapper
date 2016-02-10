@@ -10,9 +10,10 @@ import tensorflow as tf
 import logging
 
 #######################
-def batchgen(batchsize):
+def batchgen(batchsize, dictionary = False):
     
     def getbatch( *args):
+        """ generate batch train tuple from all arguments """
         if type(args[-1]) is list:
             ylen = len(y)
         else:
@@ -24,7 +25,25 @@ def batchgen(batchsize):
 
         for i in range(0, ylen, batchsize):
             yield (a[i:i+batchsize] for a in args)
-    return getbatch
+
+    def getbatchdict( **kwargs):
+        """ generate batch feed dictionary from a key-value pairs """
+        if type(kwargs.values()[-1]) is list:
+            ylen = len(y)
+        else:
+            ylen = kwargs.values()[-1].shape[0]
+
+        if len(args) > 1:
+            for kk, vv in kwargs.items():
+                assert (vv.shape[0] == ylen ), "dimension mismatch"
+
+        for i in range(0, ylen, batchsize):
+            yield {kk : vv[i:i+batchsize] for kk, vv in kwargs}
+
+    if dictionary:
+        return getbatchdict
+    else:
+        return getbatch
 
 #######################
 class vardict(dict):
@@ -234,7 +253,7 @@ class tflearn():
                                     feed_dict = { self.vars.x: X, self.vars.y :  np.reshape(y, [-1, 1]) })
         return y_predicted
 
-    def fit(self, train_X, train_Y , test_X= None, test_Y = None, load = True, epochs = None, epochs = None):
+    def fit(self, train_X, train_Y , test_X= None, test_Y = None, load = True, epochs = None):
         if epochs:
             self.epochs = epochs
         self.last_ckpt_num = 0
