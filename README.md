@@ -18,3 +18,4 @@ which come with ready to use `_create_loss()` method:
 
 `tf_factorization_machine.ipynb` : Factorization machines
 
+`gan_dense.py` :  Generative adversarial network with dense perceptron layers
