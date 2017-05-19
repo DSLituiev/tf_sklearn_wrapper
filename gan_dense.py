@@ -22,6 +22,18 @@ import numpy as np
 from tflearn import ctflearn, vardict, batchgen
 import tensorflow as tf
 
+
+flags = tf.app.flags
+FLAGS = flags.FLAGS
+
+# define flags (note that Fomoro will not pass any flags by default)
+flags.DEFINE_boolean('skip-training', False, 'If true, skip training the model.')
+flags.DEFINE_boolean('restore', False, 'If true, restore the model from the latest checkpoint.')
+model_path = os.environ.get('MODEL_PATH', 'models/')
+checkpoint_path = os.environ.get('CHECKPOINT_PATH', 'checkpoints/')
+summary_path = os.environ.get('SUMMARY_PATH', 'logdir/')
+
+
 class tfgan(ctflearn):
     """ Generative Adversarial Network implementation 
         Reference:

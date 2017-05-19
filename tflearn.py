@@ -9,9 +9,42 @@ import numpy  as np
 import tensorflow as tf
 import logging
 
+def batch_norm(x, is_training,  n_out = 1, scope='batch_norm', trainable=False):
+    """
+    http://stackoverflow.com/questions/33949786/how-could-i-use-batch-normalization-in-tensorflow
+    Batch normalization on convolutional maps.
+    Args:
+      x:           Tensor, 4D BHWD input maps
+      n_out:       integer, depth of input maps
+      is_training: boolean tf.Varialbe, true indicates training phase
+      scope:       string, variable scope
+    Return:
+      normed:      batch-normalized maps
+    """
+    with tf.variable_scope(scope):
+        beta = tf.Variable(tf.constant(0.0, shape=[n_out]),
+                           name='beta', trainable=trainable)
+        gamma = tf.Variable(tf.constant(1.0, shape=[n_out]),
+                            name='gamma', trainable=trainable)
+        batch_mean, batch_var = tf.nn.moments(x, [0,1,2], name='moments')
+        #print(batch_mean.get_shape())
+        ema = tf.train.ExponentialMovingAverage(decay=0.5)
+
+        def mean_var_with_update():
+            ema_apply_op = ema.apply([batch_mean, batch_var])
+            with tf.control_dependencies([ema_apply_op]):
+                return tf.identity(batch_mean), tf.identity(batch_var)
+
+        mean, var = tf.cond(is_training,
+                            mean_var_with_update,
+                            lambda: (ema.average(batch_mean), ema.average(batch_var)))
+        normed = tf.nn.batch_normalization(x, mean, var, beta, gamma, 1e-3)
+    return normed
+
+
 #######################
 def batchgen(batchsize, dictionary = False):
-    
+
     def getbatch( *args):
         """ generate batch train tuple from all arguments """
         if type(args[-1]) is list:
@@ -84,9 +117,7 @@ def summary_dict(summary_str, summary_proto = None):
 #######################
 
 class tflearn():
-    def __init__(self, *args,
-        **kwargs      ):
-        defaults = dict(
+    def __init__(self,
                 learning_rate = 2e-2,
                 epochs = 5000,
                 display_step = 100,
@@ -94,12 +125,22 @@ class tflearn():
                 ALPHA = 1e-4,
                 NUM_CORES = 3,
                 checkpoint_dir = "./checkpoints/",
+                logdir = "./logs/",
                 dropout = 0.5,
-                optimizer = tf.train.AdagradOptimizer
-                )
-        for kk,vv in defaults.items():
-            if kk not in kwargs:
-                kwargs[kk] = vv
+                optimizer = tf.train.AdagradOptimizer,
+        **kwargs   ):
+
+        self.learning_rate=learning_rate
+        self.epochs = int(epochs)
+        self.display_step = int(display_step)
+        self.BATCH_SIZE = int(BATCH_SIZE)
+        self.ALPHA=ALPHA
+        self.NUM_CORES = int(NUM_CORES)
+        self.checkpoint_dir=checkpoint_dir
+        self.logdir = logdir
+        self.dropout=dropout
+        self.optimizer=optimizer
+
         for kk,vv in kwargs.items():
             setattr(self, kk, vv)
         self.parameters = vardict()
@@ -110,7 +151,7 @@ class tflearn():
     #         return self.parameters[name]
     def __getattr__(self, key):
         if key.startswith('__') and key.endswith('__'):
-            return super(tflasso, self).__getattr__(key)
+            return super(tflearn, self).__getattr__(key)
         return self.__getitem__(key)
 
     def __getitem__(self, key):
@@ -119,13 +160,13 @@ class tflearn():
             return self.parameters[key]
         else:
             print("key", key, "not found", file = sys.stderr)
-            return 
+            return
 
     def _create_network(self):
         print( """
         # Example:
 
-        # create placeholders 
+        # create placeholders
         self.vars = vardict()
         self.vars.x = tf.placeholder("float", shape=[None, self.xlen])
         self.vars.y = tf.placeholder("float", shape=[None, 1])
@@ -139,10 +180,10 @@ class tflearn():
         self.saver = tf.train.Saver()
 
         return self.vars.y_predicted
-        """ ,file = sys.stderr)
-        raise NotImplementedError              
-         
-           
+        """, file = sys.stderr)
+        raise NotImplementedError
+
+
 
     def _get_summary_keys_(self):
         #summaries = {}
@@ -159,16 +200,16 @@ class tflearn():
                 sumtags.append( tags )
             else:
                 for tag in tags.flatten():
-                    sumtags.append(tag) 
-        return sumtags 
-        
+                    sumtags.append(tag)
+        return sumtags
+
     def _create_loss(self):
         """
         define loss variable and summaries;
         the method must return a tf.Variable (not a summary!)
         """
-        raise NotImplementedError              
-       
+        raise NotImplementedError
+
     def get_params(self, load = True):
         params = {}
         g = tf.Graph()
@@ -186,33 +227,35 @@ class tflearn():
                 for kk, vv in self.parameters.items():
                     params[kk] = vv.eval()
         return params
-        
+
     def _load_(self, sess, checkpoint_dir = None):
         if checkpoint_dir:
             self.checkpoint_dir = checkpoint_dir
-        
+
         print("loading a session", file = sys.stderr)
         ckpt = tf.train.get_checkpoint_state(self.checkpoint_dir)
-        # print("checkpoint:", ckpt, file = sys.stderr)
+        #print("checkpoint:", ckpt, file = sys.stderr)
         if ckpt and ckpt.model_checkpoint_path:
+            #tf.train.import_meta_graph(ckpt.model_checkpoint_path)
             self.saver.restore(sess, ckpt.model_checkpoint_path)
         else:
             print(ckpt, file = sys.stderr)
             raise IOError("no checkpoint found")
         #print( "loaded b1:",  self.parameters.b1.name , self.parameters.b1.eval()[0][0]  , sep = "\t" )
-        assert self.xlen == int(self.vars.x.get_shape()[1]), "dimension mismatch"
+        #assert self.xlen == int(self.vars.x.get_shape()[1]), "dimension mismatch"
         self.last_ckpt_num = int(ckpt.all_model_checkpoint_paths[-1].split("-")[-1])
         return ckpt
 
     def predict(self, X, y = None, load = True, debug = False):
         self.train = False
-        if len(X.shape) > 1:
-            self.xlen = X.shape[1]
-        else:
-            self.xlen = 1
+        #if len(X.shape) > 1:
+        #    self.xlen = X.shape[1]
+        #else:
+        #    self.xlen = 1
         g = tf.Graph()
         with g.as_default():
             "fetch a placeholder of the predicted variable"
+            # tf.train.import_meta_graph(meta_graph_or_file)
             ph_y_predicted = self._create_network()
             if not ("keep_prob" in self.vars or hasattr( self.vars, "keep_prob") ):
                 self.dropout = 0.0
@@ -229,10 +272,11 @@ class tflearn():
                 else:
                     sess.run(init)
 
-                feed_dict={ self.vars.x: X, }
-                if self.dropout > 0 and self.dropout < 1:
-                    feed_dict[ self.vars.keep_prob] = self.dropout 
-                
+                feed_dict={ self.vars.x: X, self.train_time: False}
+                if ("dropout" in self.__dict__) and self.dropout > 0 and self.dropout < 1:
+                    feed_dict[ self.vars.keep_prob] = self.dropout
+
+                #print("feed_dict", feed_dict)
                 y_predicted = sess.run( self.vars.y_predicted,
                                 feed_dict = feed_dict )
                 if debug:
@@ -257,7 +301,8 @@ class tflearn():
                                     feed_dict = { self.vars.x: X, self.vars.y :  np.reshape(y, [-1, 1]) })
         return y_predicted
 
-    def fit(self, train_X, train_Y , test_X= None, test_Y = None, load = True, epochs = None):
+    def fit(self, train_X, train_Y , test_X= None, test_Y = None, load = True,
+            epochs = None):
         if epochs:
             self.epochs = epochs
         self.last_ckpt_num = 0
@@ -285,7 +330,6 @@ class tflearn():
             " training per se"
             getb = batchgen( self.BATCH_SIZE)
 
-            
             # Launch the graph        
             sess_config = tf.ConfigProto(inter_op_parallelism_threads=self.NUM_CORES,
                                        intra_op_parallelism_threads= self.NUM_CORES)
@@ -300,7 +344,7 @@ class tflearn():
                     if not os.path.exists(self.checkpoint_dir):
                         os.makedirs(self.checkpoint_dir)
                 # write summaries out
-                summary_writer = tf.train.SummaryWriter("./tmp/mnist_logs", sess.graph_def)
+                summary_writer = tf.train.SummaryWriter( self.logdir, sess.graph)
                 summary_proto = tf.Summary()
                 # Fit all training data
                 print("training epochs: %u ... %u, saving each %u' epoch" % \
@@ -311,15 +355,17 @@ class tflearn():
                     "do minibatches"
                     for subepoch in tqdm(range(self.display_step)):
                         for (_x_, _y_) in getb(train_X, train_Y):
-                            _y_ = np.reshape(_y_, [-1, 1])                        
+                            if len(_y_.shape) == 1:
+                                _y_ = np.reshape(_y_, [-1, 1])
                             if self.dropout:
                                 feed_dict={ self.vars.x: _x_, self.vars.y: _y_, self.vars.keep_prob : self.dropout}
                             else:
-                                feed_dict={ self.vars.x: _x_, self.vars.y: _y_ }
+                                feed_dict={ self.vars.x: _x_, self.vars.y: _y_ , self.train_time: True}
+                            #print("feed_dict", feed_dict)
                             sess.run(train_op, feed_dict = feed_dict)
                     epoch = macro_epoch * self.display_step
                     # Display logs once in `display_step` epochs
-                    
+
                     _sets_ = ["train"]
                     _xs_ = [ train_X ]
                     _ys_ = [ train_Y ]
@@ -331,11 +377,12 @@ class tflearn():
                         _ys_.append( test_Y )
 
                     for _set_, _x_, _y_ in zip(_sets_, _xs_, _ys_ ):
-                        _y_ = np.reshape(_y_, [-1, 1])                        
+                        if len(_y_.shape) == 1:
+                            _y_ = np.reshape(_y_, [-1, 1])
 
-                        feed_dict={ self.vars.x: _x_, self.vars.y: _y_ }
+                        feed_dict={ self.vars.x: _x_, self.vars.y: _y_, self.train_time: False}
                         if self.dropout:
-                            feed_dict[ self.vars.keep_prob ] = self.dropout 
+                            feed_dict[ self.vars.keep_prob ] = self.dropout
 
                         summary_str = sess.run(summary_op, feed_dict=feed_dict)
                         summary_writer.add_summary(summary_str, epoch)
@@ -343,15 +390,17 @@ class tflearn():
                         summaries[_set_] = summary_d
 
                         #summary_d["epoch"] = epoch
-
                         self.r2_progress.append( (epoch, summary_d["R2"]))
-                        summaries_plainstr.append(  "\t".join(["",_set_] +["{:s}: {:.4f}".format(k,v) if type(v) is float else "{:s}: {:s}".format(k,v) for k,v in summary_d.items() ]) )
+                        summaries_plainstr.append(  "\t".join(["",_set_] +
+                            ["{:s}: {:.4f}".format(k,v) if type(v) is float else \
+                             "{:s}: {:s}".format(k,v) for k,v in summary_d.items() ]) )
 
                     self.train_summary.append( summaries["train"] )
                     if  "test" in summaries:
                         self.test_summary.append( summaries["test"] )
 
-                    logstr = "Epoch: {:4d}\t".format(epoch) + "\n"+ "\n".join(summaries_plainstr)
+                    logstr = "Epoch: {:4d}\t".format(epoch) +\
+                               "\n"+ "\n".join(summaries_plainstr)
                     print(logstr, file = sys.stderr )
                     self.saver.save(sess, self.checkpoint_dir + '/' +'model.ckpt',
                        global_step=  epoch)
@@ -383,11 +432,11 @@ class rtflearn(tflearn):
             #l1p_sy =  tf.scalar_summary( "L1_penalty" , l1_penalty )
             tot_loss = l2_loss #+ self.ALPHA * l1_penalty
             tot_loss_sy =  tf.scalar_summary( "loss" , tot_loss )
-            
+
             _, y_var = tf.nn.moments(self.vars.y, [0,1])
             rsq =  1 - l2_loss / y_var
             rsq_sy = tf.scalar_summary( "R2", rsq)
-            
+
         return tot_loss
 ###############################################
 class ctflearn(tflearn):
@@ -399,7 +448,7 @@ class ctflearn(tflearn):
         define loss variable and summaries;
         the method must return a tf.Variable (not a summary!)
         """
-        raise NotImplementedError              
+        raise NotImplementedError
         def loss(logits, labels, NUM_CLASSES):
             # copied from tensorflow/tensorflow/examples/tutorials/mnist/mnist.py
             """Calculates the loss from the logits and the labels.

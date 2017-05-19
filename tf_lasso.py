@@ -17,17 +17,16 @@ class tflasso(rtflearn):
         self.vars.y = tf.placeholder("float", shape=[None, 1])
 
         #def fully_connected():
-            
         # Create Model
         self.parameters["W1"] = tf.Variable(tf.truncated_normal([1, self.xlen], stddev=0.1), name="weight")
         self.parameters["b1"] = tf.Variable(tf.constant(0.1, shape=[1, 1]), name="bias")
-                
+
         self.vars.y_predicted = tf.matmul( self.vars.x, tf.transpose(self.W1)) + self.b1
         self.saver = tf.train.Saver()
         return self.vars.y_predicted
-        
-        
+
     def _create_loss(self):
+        self.train_time = tf.placeholder(tf.bool, name='train_time')
         # Minimize the squared errors
         l2_loss = tf.reduce_mean(tf.pow( self.vars.y_predicted - self.vars.y, 2))
         l2_sy = tf.scalar_summary( "L2_loss", l2_loss )
@@ -42,7 +41,7 @@ class tflasso(rtflearn):
         rsq =  1 - l2_loss / y_var
         rsq_sy = tf.scalar_summary( "R2", rsq)
         return tot_loss
-        
+
 if __name__ == "__main__":
     datafile = "../../data/atac_tss_800_1.h5"
 #    datafile = "../data/test.h5"
